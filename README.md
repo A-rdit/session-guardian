@@ -18,6 +18,9 @@ session, and every message after that was far cheaper.
 Session Guardian shows you the expensive moments before they happen, and makes starting fresh
 safe.
 
+The habits behind it fit on two pages: [Claude Code good practices (PDF)](docs/claude-code-good-practices.pdf),
+free to share.
+
 ## What the plugin does
 
 - **Countdown before the cache goes cold.** For sessions over 150K tokens, a line above the
