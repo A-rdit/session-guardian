@@ -1,0 +1,16 @@
+{
+  "name": "session-guardian",
+  "owner": { "name": "Ardit", "url": "https://github.com/A-rdit" },
+  "metadata": {
+    "description": "Session Guardian: keeps long Claude Code sessions cheap and easy to pick up."
+  },
+  "plugins": [
+    {
+      "name": "session-guardian",
+      "source": "./plugin",
+      "description": "Warns before a session's cache goes cold and says what coming back costs, nudges a wrap-up in big sessions, holds a command that keeps failing, and adds /wrapup.",
+      "version": "0.1.0",
+      "category": "productivity"
+    }
+  ]
+}

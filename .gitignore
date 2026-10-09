@@ -1,0 +1,6 @@
+# Written by Claude Code when it loads the plugin from a folder
+plugin/.claude-plugin/types/
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini

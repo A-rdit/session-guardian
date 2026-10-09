@@ -1,0 +1,48 @@
+{
+  "name": "session-guardian",
+  "version": "0.1.0",
+  "description": "Keeps long sessions cheap and easy to pick up: warns before a session's cache goes cold and what coming back costs, nudges a wrap-up past a set size, holds a command that keeps failing, and adds /wrapup.",
+  "author": { "name": "Ardit", "url": "https://github.com/A-rdit" },
+  "homepage": "https://github.com/A-rdit/session-guardian",
+  "repository": "https://github.com/A-rdit/session-guardian",
+  "license": "MIT",
+  "keywords": ["usage", "prompt-cache", "sessions", "handoff", "tracker"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "warnMinutes": {
+      "type": "number",
+      "title": "Warn this many minutes before the cache goes cold",
+      "description": "The main conversation stays cached for an hour after its last message. One pop-up comes this many minutes before that.",
+      "required": false,
+      "default": 5
+    },
+    "warnFromTokens": {
+      "type": "number",
+      "title": "Only warn for sessions at least this big (tokens)",
+      "description": "Smaller sessions are cheap to bring back, so they get no countdown.",
+      "required": false,
+      "default": 150000
+    },
+    "wrapupAt": {
+      "type": "number",
+      "title": "Suggest a wrap-up at this size (tokens)",
+      "description": "Past this, every message re-reads a lot. One nudge here, and one more at twice this size.",
+      "required": false,
+      "default": 400000
+    },
+    "weeklyUsd": {
+      "type": "number",
+      "title": "Your weekly limit in API dollars (0 = off)",
+      "description": "Set it to also show costs as a share of your week. Measure it once: what a week that filled your weekly bar would have cost at API prices.",
+      "required": false,
+      "default": 0
+    },
+    "retryGuard": {
+      "type": "boolean",
+      "title": "Hold a command that keeps failing",
+      "description": "When the same command fails twice in a row with nothing changed in between, hold the next identical attempt once and ask Claude to change something first.",
+      "required": false,
+      "default": true
+    }
+  }
+}
