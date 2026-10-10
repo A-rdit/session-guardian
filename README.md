@@ -41,7 +41,8 @@ also shown as a share of your weekly limit.
 
 ## The rules
 
-`rules/CLAUDE.md` holds two rules for Claude. They work with or without the plugin.
+`rules/CLAUDE.md` holds two rules for Claude and one optional one. They work with or without the
+plugin.
 
 - **Session ID and sidebar markers.** Every session takes a number from `SESSIONS.md` and
   renames itself, like `#W4 Website · contact form`. A marker in front of the title says where
@@ -51,6 +52,11 @@ also shown as a share of your weekly limit.
   so sessions running side by side don't overwrite each other. Below that come what waits on
   you and the branches of work, next step first. Finished items stay struck out as a reminder,
   five at most; older lines move to `TRACKER-ARCHIVE.md`.
+
+- **TLDR on long replies (optional).** A long final reply ends with one or two plain lines:
+  what was done, what comes next, what waits on you. It costs a little output, but when you come
+  back to a session lost, the last message tells you where things stand, and you can start fresh
+  from it instead of asking the old session.
 
 Renaming and the sidebar markers use tools of the Claude desktop app. Elsewhere Claude writes
 the ID in its first line instead.
@@ -126,6 +132,23 @@ claude plugin test plugin
 
 The tests in `plugin/tests` cover the countdown, the nudges, `/wrapup`, the retry guard and the
 band on the terminal and desktop surfaces.
+
+## Measuring whether it helps
+
+`bench/cold-returns.py` reads your own Claude Code transcripts (`~/.claude/projects`) and prices
+every request of the main conversation at list prices. A cold return is a request more than an
+hour after the previous one in the same session, when the whole context is written into the cache
+again. The script reports, per week, how much of your usage those cost, and lists the most
+expensive ones. Nothing leaves your machine.
+
+```bash
+python bench/cold-returns.py --since 2026-09-01 --weeks 8
+```
+
+Run it once before you install Session Guardian and again a few weeks later; the cold share is
+the number that should fall. On Windows, set `PYTHONIOENCODING=utf-8` first if session titles
+contain characters your console can't print. Over two months of one heavy user's logs, 18.6% of
+all usage was cold returns, rising to 24% in the last two weeks as sessions grew.
 
 ## Credits
 

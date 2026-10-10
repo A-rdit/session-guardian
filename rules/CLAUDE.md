@@ -1,7 +1,8 @@
 # Session Guardian rules
 
-Paste these two sections into `~/.claude/CLAUDE.md` to use them in every project, or into one
-project's `CLAUDE.md` to try them there first. A project's own rules win over the global file.
+Paste the first two sections into `~/.claude/CLAUDE.md` to use them in every project, or into
+one project's `CLAUDE.md` to try them there first. A project's own rules win over the global
+file. The third section is optional; see its note.
 
 ## Session ID and sidebar markers
 
@@ -96,3 +97,18 @@ Goal: <one line>
 - <next step>
 - ~~<a finished item>~~ (done 10 Oct)
 ```
+
+## TLDR on long replies (optional)
+
+Optional because it spends a little usage: one or two extra lines of output per long reply,
+which then sit in the context for the rest of the session. That is small next to a cold return,
+and if you often come back to a session lost, the last message then tells you at a glance where
+things stand, so you can start a fresh session from it instead of asking the old one for
+details.
+
+Only in the final message of a turn, never in progress notes between tool calls, and only when
+that final message is long: about 300 words or more, or it has headers or several lists. Then
+end it with a TLDR of one or two lines in plain language: what was found or done, what comes
+next, and what waits on the user. One TLDR per turn, nothing before it that already says the
+same. Short replies get none. Progress notes between tool calls stay to one line each and never
+repeat earlier ones. Subagents and scheduled tasks skip this.
