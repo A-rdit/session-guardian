@@ -172,8 +172,9 @@ band on the terminal and desktop surfaces.
 `bench/cold-returns.py` reads your own Claude Code transcripts (`~/.claude/projects`) and prices
 every request of the main conversation at list prices. A cold return is a request more than an
 hour after the previous one in the same session, when the whole context is written into the cache
-again. The script reports, per week, how much of your usage those cost, and lists the most
-expensive ones. Nothing leaves your machine.
+again. The script reports, per week, how much of your usage those cost; how big cold returns
+are, split into what was rewritten and what was still cached, with their spread by size; and
+the most expensive ones. Nothing leaves your machine.
 
 ```bash
 python bench/cold-returns.py --since 2026-09-01 --weeks 8

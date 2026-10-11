@@ -5,7 +5,9 @@ Reads every Claude Code transcript under ~/.claude/projects and prices each API 
 Anthropic list prices (October 2026). A "cold return" is a main-conversation request that
 comes more than 60 minutes after the previous one in the same session: the 1-hour cache has
 expired and the whole context is written again at 2x the input price. Session Guardian exists
-to make those rarer and smaller, so this script is the before/after measure.
+to make those rarer and smaller, so this script is the before/after measure. For every cold
+return it also splits the prompt into what was rewritten and what was still cached, and shows
+how cold returns spread by size.
 
 Usage:  python cold-returns.py [--since 2026-09-01] [--weeks 6] [--top 10] [--md out.md]
 Nothing leaves the machine; nothing is written unless --md is given.
@@ -40,7 +42,8 @@ def price(model):
     return DEFAULT[1:]
 
 
-def cost(model, u):
+def parts(model, u):
+    """Dollars for one request: (uncached input, cache write, cache read, output)."""
     i, c, o = price(model)
     cc = u.get("cache_creation") or {}
     w1h = cc.get("ephemeral_1h_input_tokens")
@@ -48,12 +51,24 @@ def cost(model, u):
     if w1h is None and w5m is None:
         w1h, w5m = u.get("cache_creation_input_tokens", 0), 0  # old logs: assume 1h
     return (
-        u.get("input_tokens", 0) * i
-        + (w1h or 0) * 2 * i
-        + (w5m or 0) * 1.25 * i
-        + u.get("cache_read_input_tokens", 0) * c
-        + u.get("output_tokens", 0) * o
-    ) / 1e6
+        u.get("input_tokens", 0) * i / 1e6,
+        ((w1h or 0) * 2 * i + (w5m or 0) * 1.25 * i) / 1e6,
+        u.get("cache_read_input_tokens", 0) * c / 1e6,
+        u.get("output_tokens", 0) * o / 1e6,
+    )
+
+
+def cost(model, u):
+    return sum(parts(model, u))
+
+
+def pct(values, p):
+    """The p-th quantile (0 to 1) of values, interpolated."""
+    v = sorted(values)
+    k = (len(v) - 1) * p
+    lo = int(k)
+    hi = min(lo + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
 
 def ts(s):
@@ -130,7 +145,10 @@ def main():
                 w["cold"] += c
                 w["cold_n"] += 1
                 w["cold_tokens"] += written
-                colds.append((c, written, (t - prev).total_seconds() / 3600, t, model, title))
+                read = u.get("cache_read_input_tokens", 0)
+                prompt = u.get("input_tokens", 0) + written + read
+                colds.append((c, written, (t - prev).total_seconds() / 3600, t, model, title,
+                              prompt, read, parts(model, u)[1]))
             prev = t
 
     keys = sorted(weeks)[-a.weeks:]
@@ -160,11 +178,41 @@ def main():
         f"**{share:.1f}%** | {avg:.0f}K | {tot['fresh']:.0f} | {tot['warm_reads']:.0f} |"
     )
 
+    if colds:
+        cold_usd = sum(r[0] for r in colds)
+        out.append("\n## How big cold returns are\n")
+        out.append(
+            "The prompt is everything sent with the request. Rewritten is the part the cache had lost and "
+            "wrote again; still cached is the part it read cheaply. "
+            f"The rewrite is {sum(r[8] for r in colds) / cold_usd * 100:.0f}% of what cold returns cost.\n"
+        )
+        qs = [(0.1, "p10"), (0.25, "p25"), (0.5, "Median"), (0.75, "p75"), (0.9, "p90"), (1.0, "Max")]
+        out.append("| Per cold return | " + " | ".join(name for _, name in qs) + " |")
+        out.append("| --- |" + " ---: |" * len(qs))
+        for label, idx, fmt in [
+            ("Prompt", 6, lambda v: f"{v / 1000:.0f}K"),
+            ("Rewritten", 1, lambda v: f"{v / 1000:.0f}K"),
+            ("Still cached", 7, lambda v: f"{v / 1000:.0f}K"),
+            ("Cost $", 0, lambda v: f"{v:.2f}"),
+        ]:
+            vals = [r[idx] for r in colds]
+            out.append(f"| {label} | " + " | ".join(fmt(pct(vals, p)) for p, _ in qs) + " |")
+
+        out.append("\n| Rewritten | Cold returns | Share of returns | Cold $ | Share of cold $ |")
+        out.append("| --- | ---: | ---: | ---: | ---: |")
+        for lo, hi in [(MIN_COLD_TOKENS, 50e3), (50e3, 100e3), (100e3, 200e3), (200e3, 400e3), (400e3, 600e3), (600e3, None)]:
+            band = [r for r in colds if r[1] >= lo and (hi is None or r[1] < hi)]
+            usd = sum(r[0] for r in band)
+            label = f"{lo / 1000:.0f}K+" if hi is None else f"{lo / 1000:.0f}K to {hi / 1000:.0f}K"
+            out.append(
+                f"| {label} | {len(band)} | {len(band) / len(colds) * 100:.0f}% | {usd:.0f} | {usd / cold_usd * 100:.0f}% |"
+            )
+
     colds.sort(reverse=True)
     out.append(f"\n## The {a.top} most expensive cold returns\n")
     out.append("| $ | Rewritten | Gap | When (UTC) | Model | Session |")
     out.append("| ---: | ---: | ---: | --- | --- | --- |")
-    for c, written, gap, t, model, title in colds[: a.top]:
+    for c, written, gap, t, model, title, *_ in colds[: a.top]:
         when = t.strftime("%Y-%m-%d %H:%M")
         out.append(f"| {c:.2f} | {written / 1000:.0f}K | {gap:.1f} h | {when} | {model.replace('claude-', '')} | {title[:50]} |")
 
