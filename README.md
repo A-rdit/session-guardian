@@ -3,6 +3,8 @@
 A Claude Code plugin and two CLAUDE.md rules that keep long sessions cheap to run and easy to
 pick up again.
 
+![The band above the prompt in the Claude desktop app, after a 202K session's cache expired](docs/img/cold-band.png)
+
 ## Why
 
 In a long Claude Code session, most of your usage doesn't go to Claude writing code. It goes to
@@ -38,6 +40,38 @@ free to share.
 Costs are shown in ordinary messages: a cold return of a Fable 5.1 session costs as much as
 about 80 warm messages, Opus 5.5 about 40, Sonnet about 20. If you set `weeklyUsd`, they are
 also shown as a share of your weekly limit.
+
+## What it looks like
+
+The screenshot at the top is the red band in the desktop app, on a real 202K session whose cache
+had just expired. The figure below shows every state with the plugin's exact wording, laid out
+in the same style (a mock-up, not a screenshot). In the terminal the band shows the same text in
+your terminal's colours.
+
+![Every band and pop-up Session Guardian shows, with the wording it uses](docs/img/states.png)
+
+## What it saves
+
+An early estimate, from one heavy user's logs (Max 20x, mostly Fable 5.1 and Opus 5.5), priced
+at API list prices with [the benchmark script](#measuring-whether-it-helps):
+
+| | 27 Sep to 9 Oct, before | 10 to 11 Oct, first two days with it |
+| --- | ---: | ---: |
+| Cold returns in interactive sessions | 175 | 2 |
+| What they cost | $732 | $9 |
+| Share of interactive usage | 20.4% | 4.2% |
+
+A cold return cost $4.18 on average (334K rewritten), and the largest, on 600K to 720K Fable
+sessions, $12 to $15 each. A fresh session's first message, reading a tracker file, cost a
+median of $0.37. At the earlier rate of about 13 cold returns a day, swapping them for fresh
+starts saves about $50 a day at API prices, which is 15% to 20% of a week that fills a Max 20x
+limit. Put another way: about one day of usage back each week.
+
+Two days is a small sample, and those two were a weekend after the weekly limit had been hit,
+so usage was light. Re-run the script after a few weeks before you trust the figure. One
+automated session is left out of both columns: a background loop that woke every 110 minutes
+and so came back cold every time (85% of its usage). The fix there is to wake it more often
+than once an hour, which needs no plugin.
 
 ## The rules
 
