@@ -144,6 +144,94 @@ test('a successful edit clears the failure count', async ($, on) => {
   expect(runs).toBe(3)
 })
 
+test('/wrapup lists dead ends with their error and what worked after them', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on)
+  on('tool.call', ($, e) => {
+    if (e.tool === 'Edit') return { result: undefined, text: 'ok' } as never
+    const command = (e as { command: string }).command
+    if (command.includes('npx vitest')) return { result: undefined, text: 'ok' } as never
+    return {
+      result: undefined,
+      isError: true,
+      text: 'Exit code 1\n> app@1.0.0 test\nsh: jest: command not found',
+    } as never
+  })
+  await $.session.start(START as never)
+  const bash = (command: string) => $.tool.call({ tool: 'Bash', command } as never)
+  await bash('cd app && npm test')
+  await bash('cd app && npm test')
+  // An edit clears the retry guard, but not the dead end.
+  await $.tool.call({ tool: 'Edit', file_path: 'C:/project/a.ts', old_string: 'a', new_string: 'b' } as never)
+  await bash('cd app && npm test')
+  await bash('npm run lint')
+  await bash('npx vitest run')
+  await bash('npx vitest run --coverage')
+
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  const prompt = seen.prompts[0]!
+  expect(prompt).toContain('2. Dead ends.')
+  expect(prompt).toContain('`cd app && npm test` (Bash) failed 3 times: sh: jest: command not found.')
+  // `npx` is a different program from `npm`, so nothing counts as having worked.
+  expect(prompt).toContain('Nothing seen working after it.')
+  // A command that failed once is not a dead end.
+  expect(prompt).not.toContain('npm run lint')
+  expect(prompt).toContain('4. Reply in at most three short lines')
+})
+
+test('a dead end notes the next command of the same program that worked', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on)
+  on('tool.call', ($, e) => {
+    const command = (e as { command: string }).command
+    if (command === 'npm run test:unit') return { result: undefined, text: 'ok' } as never
+    return { result: undefined, isError: true, text: 'npm error Missing script: "test"' } as never
+  })
+  await $.session.start(START as never)
+  const bash = (command: string) => $.tool.call({ tool: 'Bash', command } as never)
+  await bash('npm test')
+  await bash('npm test')
+  await bash('npm run test:unit')
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  expect(seen.prompts[0]).toContain('Seen working after it: `npm run test:unit`.')
+})
+
+test('/wrapup has no dead-end step without dead ends, and a finished wrap-up clears them', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on)
+  on('tool.call', () => ({ result: undefined, isError: true, text: 'exit 1' }) as never)
+  await $.session.start(START as never)
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  expect(seen.prompts[0]).not.toContain('Dead ends')
+  expect(seen.prompts[0]).toContain('3. Reply in at most three short lines')
+
+  await $.tool.call({ tool: 'PowerShell', command: 'pnpm build' } as never)
+  await $.tool.call({ tool: 'PowerShell', command: 'pnpm build' } as never)
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  expect(seen.prompts[1]).toContain('`pnpm build` (PowerShell) failed 2 times')
+  await $.turn.complete({ turnId: 't2', isAborted: false, answer: '' } as never)
+
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  expect(seen.prompts[2]).not.toContain('Dead ends')
+})
+
+test('deadEnds off leaves them out of /wrapup', { options: { deadEnds: false } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on)
+  on('tool.call', () => ({ result: undefined, isError: true, text: 'exit 1' }) as never)
+  await $.session.start(START as never)
+  await $.tool.call({ tool: 'Bash', command: 'make' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'make' } as never)
+  await $.command.run({ command: 'wrapup', args: '' } as never)
+  await clock.advance(10)
+  expect(seen.prompts[0]).not.toContain('Dead ends')
+})
+
 test('the band shows the countdown on the terminal and the desktop', async ($, on) => {
   const clock = mock.clock(on)
   engine(on, 500_000)

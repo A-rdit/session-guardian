@@ -1,7 +1,7 @@
 {
   "name": "session-guardian",
-  "version": "0.1.0",
-  "description": "Keeps long sessions cheap and easy to pick up: warns before a session's cache goes cold and what coming back costs, nudges a wrap-up past a set size, holds a command that keeps failing, and adds /wrapup.",
+  "version": "0.2.0",
+  "description": "Keeps long sessions cheap and easy to pick up: warns before a session's cache goes cold and what coming back costs, nudges a wrap-up past a set size, holds a command that keeps failing, and adds /wrapup, which also saves the session's dead ends.",
   "author": { "name": "Ardit", "url": "https://github.com/A-rdit" },
   "homepage": "https://github.com/A-rdit/session-guardian",
   "repository": "https://github.com/A-rdit/session-guardian",
@@ -41,6 +41,13 @@
       "type": "boolean",
       "title": "Hold a command that keeps failing",
       "description": "When the same command fails twice in a row with nothing changed in between, hold the next identical attempt once and ask Claude to change something first.",
+      "required": false,
+      "default": true
+    },
+    "deadEnds": {
+      "type": "boolean",
+      "title": "Save dead ends with /wrapup",
+      "description": "Commands that failed twice in a row unchanged are listed in the /wrapup prompt, with what was seen working after them, so the saved notes warn the next session.",
       "required": false,
       "default": true
     }

@@ -36,6 +36,12 @@ free to share.
 - **Retry guard.** When the same Bash or PowerShell command fails twice in a row with no edit
   in between, the third identical try is paused once and Claude is asked to fix the cause
   first. Sending the same command again runs it.
+- **Dead ends saved with `/wrapup`.** Every command that failed twice in a row unchanged is
+  remembered, with its error line and the next command of the same program that worked (so
+  `npm run test:unit` after a failing `npm test`). Edits and compaction don't clear the list.
+  `/wrapup` hands it to Claude, who writes one line per dead end into the saved notes, or into
+  the project's CLAUDE.md when it is a lasting fact, so the next session doesn't try the same
+  thing again.
 
 Costs are shown in ordinary messages: a cold return of a Fable 5.1 session costs as much as
 about 80 warm messages, Opus 5.5 about 40, Sonnet about 20. If you set `weeklyUsd`, they are
@@ -128,6 +134,7 @@ project, or into one project's `CLAUDE.md` to try them there first.
 | `wrapupAt` | 400000 | Size of the first wrap-up nudge; the second comes at twice this |
 | `weeklyUsd` | 0 (off) | Your weekly limit in API dollars, to show costs as a share of your week |
 | `retryGuard` | true | Pause the third identical failing command once |
+| `deadEnds` | true | List commands that kept failing in the `/wrapup` prompt |
 
 Change them with `/plugin configure session-guardian@session-guardian` in a terminal session,
 or pass them when installing: `claude plugin install session-guardian@session-guardian --config weeklyUsd=1770`.
@@ -156,6 +163,11 @@ October 2026, one such week came to about $1,770.
   for example while it draws on pay-as-you-go extra usage, the countdown is too generous.
 - The share of your week assumes your limit drains in line with API prices. Anthropic doesn't
   publish how limits are counted, so treat it as a guide.
+- The retry guard and the dead ends go by whether the command failed. A piped command such as
+  `npm test | tail` reports the last program's result, so a failing test run behind a pipe
+  counts as a success.
+- The dead-end list lives in memory: reloading the plugin or restarting the app starts it over.
+  The "seen working" hint is a guess from the program name, and Claude is asked to correct it.
 
 ## Development
 
@@ -164,8 +176,8 @@ claude plugin validate plugin
 claude plugin test plugin
 ```
 
-The tests in `plugin/tests` cover the countdown, the nudges, `/wrapup`, the retry guard and the
-band on the terminal and desktop surfaces.
+The tests in `plugin/tests` cover the countdown, the nudges, `/wrapup`, the retry guard, the
+dead ends and the band on the terminal and desktop surfaces.
 
 ## Measuring whether it helps
 
@@ -190,7 +202,9 @@ all usage was cold returns, rising to 24% in the last two weeks as sessions grew
 The cache countdown and the retry guard were inspired by
 [optimAIzr](https://github.com/blendbunjaku/optimaizr), a local tool that finds wasted tokens in
 Claude Code and Codex. Session Guardian is a smaller, separate take, focused on the desktop app
-and on handing work from one session to the next.
+and on handing work from one session to the next. The dead ends follow an idea from
+[MuscleMemory](https://github.com/TheWariend/MuscleMemory), which turns failed attempts into
+"watch out" notes for the next run.
 
 ## License
 

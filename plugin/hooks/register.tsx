@@ -27,12 +27,16 @@ const PRICES: readonly [RegExp, number, number][] = [
 ]
 const OPUS = PRICES[2]!
 
-const WRAPUP = [
-  'Wrap up this session so a fresh session can pick up the work without this chat.',
-  "1. Save the state. If CLAUDE.md has session or tracker rules, follow them. Otherwise update TRACKER.md at the project root (create it if it is missing): where this session stopped, what comes next, and anything that waits on me.",
-  '2. If you can rename this session, put ✓ in front of its title when the work is done, or @ when something waits on me.',
-  '3. Reply in at most three short lines: what is saved and where, and a one-line prompt I can paste to start the next session.',
-].join('\n')
+const WRAPUP_SAVE =
+  "Save the state. If CLAUDE.md has session or tracker rules, follow them. Otherwise update TRACKER.md at the project root (create it if it is missing): where this session stopped, what comes next, and anything that waits on me."
+const WRAPUP_DEAD_ENDS =
+  'Dead ends. These commands failed again and again in this session. Add one line each to the notes you just saved, under "Dead ends": what failed and what worked instead, so the next session skips them. A lasting fact about this project (the right way to run its tests, a tool that is not installed here) goes in its CLAUDE.md as one line instead. Correct the "seen working" hint if it is wrong, drop any that no longer matter, and leave out secrets.'
+const WRAPUP_TITLE = 'If you can rename this session, put ✓ in front of its title when the work is done, or @ when something waits on me.'
+const WRAPUP_REPLY = 'Reply in at most three short lines: what is saved and where, and a one-line prompt I can paste to start the next session.'
+
+/** The most dead ends /wrapup lists, and how much of a command or error line it quotes. */
+const MAX_DEAD_ENDS = 8
+const MAX_QUOTE = 160
 
 const RETRY_HELD =
   `${PLUGIN} paused this command: it has failed twice in a row, unchanged, with no edit in between. ` +
@@ -43,7 +47,7 @@ const RETRY_HELD =
 const MUTATING = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 
 /** Settings, read from the manifest's userConfig when the module loads. */
-const cfg = { warnMs: 5 * 60_000, warnFrom: 150_000, wrapupAt: 400_000, weeklyUsd: 0, retryGuard: true }
+const cfg = { warnMs: 5 * 60_000, warnFrom: 150_000, wrapupAt: 400_000, weeklyUsd: 0, retryGuard: true, deadEnds: true }
 
 /** The main conversation, as this mod has seen it since it loaded. */
 const s = {
@@ -60,6 +64,10 @@ const s = {
 /** Failed commands per loop, for the retry guard. */
 const fails = new Map<string, number>()
 const waived = new Set<string>()
+
+/** A command that failed twice in a row unchanged. Kept through edits and compaction until /wrapup saves it. */
+type DeadEnd = { loop: string; tool: string; command: string; fails: number; error: string; worked?: string }
+const deadEnds = new Map<string, DeadEnd>()
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && v >= 0 ? v : fallback)
 const k = (tokens: number) => `${Math.round(tokens / 1000)}K`
@@ -83,6 +91,65 @@ function forget() {
   s.nudged = 0
   s.wrapping = false
   s.wrapped = false
+}
+
+const quote = (text: string) => {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > MAX_QUOTE ? `${line.slice(0, MAX_QUOTE - 1)}…` : line
+}
+
+/** The line of a failed command's output that says what went wrong: the first that names an error, else the last. */
+function errorLine(text: string | undefined): string {
+  const lines = (text ?? '').split('\n').map(l => l.trim()).filter(l => l && !/^exit code \d+$/i.test(l))
+  const named = lines.find(l => /error|not found|not recognized|cannot|denied|failed|no such/i.test(l))
+  return quote(named ?? lines.at(-1) ?? '')
+}
+
+/** The program a command runs, past any leading `cd somewhere &&`: `npm` for `cd app && npm test`. */
+const program = (command: string) =>
+  command.replace(/^(\s*(cd|Set-Location|pushd)\s+[^;&|]+(&&|;)\s*)+/i, '').trim().split(/\s+/)[0]!.toLowerCase()
+
+/** Counts a failure; a command that fails twice in a row unchanged becomes a dead end. */
+function deadEndFailed(key: string, loop: string, tool: string, command: string, inARow: number, text: string | undefined) {
+  const known = deadEnds.get(key)
+  if (known) {
+    known.fails += 1
+    known.error = errorLine(text) || known.error
+    known.worked = undefined
+  } else if (inARow >= 2 && deadEnds.size < MAX_DEAD_ENDS) {
+    deadEnds.set(key, { loop, tool, command, fails: inARow, error: errorLine(text) })
+  }
+}
+
+/** A command that succeeds after a dead end in the same loop, running the same program, is likely what worked. */
+function deadEndPassed(loop: string, command: string) {
+  for (const dead of deadEnds.values()) {
+    if (dead.loop === loop && dead.worked === undefined && program(dead.command) === program(command)) {
+      dead.worked = command
+    }
+  }
+}
+
+function wrapupPrompt(): string {
+  const steps = [WRAPUP_SAVE]
+  if (cfg.deadEnds && deadEnds.size > 0) {
+    const lines = [...deadEnds.values()].map(d => {
+      const worked =
+        d.worked === undefined
+          ? 'Nothing seen working after it.'
+          : d.worked === d.command
+            ? 'Seen working later, unchanged, after something else changed.'
+            : `Seen working after it: \`${quote(d.worked)}\`.`
+      const error = d.error ? `: ${d.error}.` : '.'
+      return `   - \`${quote(d.command)}\` (${d.tool}) failed ${d.fails} times${error} ${worked}`
+    })
+    steps.push([WRAPUP_DEAD_ENDS, ...lines].join('\n'))
+  }
+  steps.push(WRAPUP_TITLE, WRAPUP_REPLY)
+  return [
+    'Wrap up this session so a fresh session can pick up the work without this chat.',
+    ...steps.map((step, i) => `${i + 1}. ${step}`),
+  ].join('\n')
 }
 
 /** Works out the band, and the one pop-up before the cache goes cold. */
@@ -140,7 +207,7 @@ function nudge($: EngineInterface) {
 }
 
 function submitWrapup($: EngineInterface) {
-  void $.prompt.submit({ text: WRAPUP, asUser: true })
+  void $.prompt.submit({ text: wrapupPrompt(), asUser: true })
 }
 
 export const register: Register = (on, options) => {
@@ -149,6 +216,7 @@ export const register: Register = (on, options) => {
   cfg.wrapupAt = num(options.wrapupAt, 400_000) || 400_000
   cfg.weeklyUsd = num(options.weeklyUsd, 0)
   cfg.retryGuard = options.retryGuard !== false
+  cfg.deadEnds = options.deadEnds !== false
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -196,6 +264,8 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined && s.wrapping && !e.isAborted) {
       s.wrapping = false
       s.wrapped = true
+      // Saved with the notes; a fresh list starts here.
+      deadEnds.clear()
       await refresh($)
     }
     return result
@@ -215,6 +285,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       forget()
+      deadEnds.clear()
       s.tokens = 0
       await refresh($)
     }
@@ -238,8 +309,11 @@ export const register: Register = (on, options) => {
       if (ok) {
         fails.delete(key)
         waived.delete(key)
+        deadEndPassed(loop, command!)
       } else if (ran.deny === undefined) {
-        fails.set(key, (fails.get(key) ?? 0) + 1)
+        const inARow = (fails.get(key) ?? 0) + 1
+        fails.set(key, inARow)
+        deadEndFailed(key, loop, String(e.tool), command!, inARow, ran.text)
       }
     }
     if (ok && MUTATING.has(String(e.tool))) {
