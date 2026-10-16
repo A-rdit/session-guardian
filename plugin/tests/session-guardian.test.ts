@@ -251,6 +251,98 @@ test('the band shows the countdown on the terminal and the desktop', async ($, o
   }
 })
 
+/** A user prompt, its main-thread step and the end of its turn. */
+async function exchange($: never, text: string) {
+  const h = $ as { prompt: { submit: (e: unknown) => Promise<unknown> }; turn: { complete: (e: unknown) => Promise<unknown> } }
+  await h.prompt.submit({ text, origin: { kind: 'human' } })
+  await runStep($, 'claude-opus-5-5')
+  await h.turn.complete({ turnId: 't1', isAborted: false, answer: '' })
+}
+
+const mountBand = async ($: never) =>
+  (
+    $ as {
+      ui: { mount: (e: unknown) => Promise<{ find: (q: unknown) => Promise<unknown>; unmount: () => Promise<void> }> }
+    }
+  ).ui.mount({
+    plugin: 'session-guardian',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false },
+  })
+
+test('saves a quiet session once, ten minutes before its cache goes cold', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 200_000)
+  await $.session.start(START as never)
+  await $.session.measure(measure(200_000) as never)
+  await exchange($ as never, 'Fix the contact form')
+  expect(seen.prompts.length).toBe(1)
+
+  await clock.advance(49 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+
+  await clock.advance(2 * 60_000)
+  expect(seen.prompts.length).toBe(2)
+  expect(seen.prompts[1]).toContain('Autosave from session-guardian')
+  expect(seen.prompts[1]).toContain('TRACKER.md')
+  expect(seen.prompts[1]).toContain('plain words')
+  await $.turn.complete({ turnId: 't2', isAborted: false, answer: '' } as never)
+
+  const ui = await mountBand($ as never)
+  expect(await ui.find({ type: 'Text', text: /Saved automatically at/ })).toBeDefined()
+  await ui.unmount()
+
+  // Nothing new was asked, so no second save and no cold warning.
+  await clock.advance(120 * 60_000)
+  expect(seen.prompts.length).toBe(2)
+  expect(seen.toasts.filter(t => t.includes('goes cold')).length).toBe(0)
+
+  // A new question makes the session worth saving again.
+  await exchange($ as never, 'Now the footer')
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(4)
+  expect(seen.prompts[3]).toContain('Autosave from session-guardian')
+})
+
+test('no autosave while a turn is still running, or once the cache is cold', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 200_000)
+  await $.session.start(START as never)
+  await $.session.measure(measure(200_000) as never)
+  // The prompt goes in but its turn never completes: Claude is still working.
+  await $.prompt.submit({ text: 'Run the long migration', origin: { kind: 'human' } } as never)
+  await runStep($ as never, 'claude-opus-5-5')
+  await clock.advance(55 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+
+  // The turn ends after the cache went cold: too late to save cheaply, so nothing is sent.
+  await clock.advance(10 * 60_000)
+  await $.turn.complete({ turnId: 't1', isAborted: false, answer: '' } as never)
+  await clock.advance(5 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+})
+
+test('sessions under 20K tokens are not autosaved', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 12_000)
+  await $.session.start(START as never)
+  await $.session.measure(measure(12_000) as never)
+  await exchange($ as never, 'What time is it in Tirana?')
+  await clock.advance(55 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+})
+
+test('autoSaveMinutes 0 turns the autosave off', { options: { autoSaveMinutes: 0 } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 200_000)
+  await $.session.start(START as never)
+  await $.session.measure(measure(200_000) as never)
+  await exchange($ as never, 'Fix the contact form')
+  await clock.advance(58 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+})
+
 test('adds the share of the week when weeklyUsd is set', { options: { weeklyUsd: 1770 } }, async ($, on) => {
   const clock = mock.clock(on)
   const seen = engine(on, 896_000)

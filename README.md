@@ -30,6 +30,13 @@ free to share.
   pop-up comes 5 minutes before.
 - **Wrap-up nudge.** At 400K tokens, and again at 800K, a pop-up suggests wrapping up and
   starting fresh.
+- **Autosave.** When a session has been quiet for 50 minutes and you asked it something since
+  its last save, Session Guardian asks Claude to save where it stopped (in `TRACKER.md`, or
+  wherever your CLAUDE.md rules say) while the cache is still warm. That costs about one
+  ordinary message. Come back hours later and a fresh session can pick up from the notes, even
+  if you never ran `/wrapup`. It happens once per quiet stretch, only in sessions over 20K
+  tokens, never while Claude is still working, and the line above the prompt then says when it
+  saved.
 - **`/wrapup`.** Claude saves where the session stopped (in `TRACKER.md`, or wherever your
   CLAUDE.md rules say), marks the session done and gives you a one-line prompt to start the
   next one. The line above the prompt then says it's safe to archive.
@@ -135,6 +142,7 @@ project, or into one project's `CLAUDE.md` to try them there first.
 | `weeklyUsd` | 0 (off) | Your weekly limit in API dollars, to show costs as a share of your week |
 | `retryGuard` | true | Pause the third identical failing command once |
 | `deadEnds` | true | List commands that kept failing in the `/wrapup` prompt |
+| `autoSaveMinutes` | 50 | Minutes of quiet before the autosave; 0 turns it off, at most 58 |
 
 Change them with `/plugin configure session-guardian@session-guardian` in a terminal session,
 or pass them when installing: `claude plugin install session-guardian@session-guardian --config weeklyUsd=1770`.
@@ -148,7 +156,7 @@ October 2026, one such week came to about $1,770.
 ## How the numbers are worked out
 
 - The plugin reads the session's context size and model from Claude Code itself. It makes no
-  network calls and writes no files.
+  network calls and writes no files itself; the autosave asks Claude to write the notes.
 - A cold return writes the whole context into a 1-hour cache at twice the model's input price.
   A warm message reads it at the cache-read price. The ratio of the two is the "ordinary
   messages" figure.
@@ -168,6 +176,9 @@ October 2026, one such week came to about $1,770.
   counts as a success.
 - The dead-end list lives in memory: reloading the plugin or restarting the app starts it over.
   The "seen working" hint is a guess from the program name, and Claude is asked to correct it.
+- The autosave arrives in the session as a message from you, so you see it in the chat. The app
+  has to be open for it to run, and a session the app has unloaded is not saved. If you happen
+  to be typing in that session at the 50-minute mark, the save goes in first.
 
 ## Development
 
@@ -176,8 +187,8 @@ claude plugin validate plugin
 claude plugin test plugin
 ```
 
-The tests in `plugin/tests` cover the countdown, the nudges, `/wrapup`, the retry guard, the
-dead ends and the band on the terminal and desktop surfaces.
+The tests in `plugin/tests` cover the countdown, the nudges, `/wrapup`, the autosave, the retry
+guard, the dead ends and the band on the terminal and desktop surfaces.
 
 ## Measuring whether it helps
 

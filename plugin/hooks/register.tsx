@@ -34,6 +34,11 @@ const WRAPUP_DEAD_ENDS =
 const WRAPUP_TITLE = 'If you can rename this session, put ✓ in front of its title when the work is done, or @ when something waits on me.'
 const WRAPUP_REPLY = 'Reply in at most three short lines: what is saved and where, and a one-line prompt I can paste to start the next session.'
 
+/** Sessions smaller than this are not worth an automatic save. */
+const AUTOSAVE_MIN_TOKENS = 20_000
+/** The latest an automatic save may come, so it always lands while the cache is still warm. */
+const AUTOSAVE_MAX_MS = 58 * 60_000
+
 /** The most dead ends /wrapup lists, and how much of a command or error line it quotes. */
 const MAX_DEAD_ENDS = 8
 const MAX_QUOTE = 160
@@ -47,7 +52,7 @@ const RETRY_HELD =
 const MUTATING = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 
 /** Settings, read from the manifest's userConfig when the module loads. */
-const cfg = { warnMs: 5 * 60_000, warnFrom: 150_000, wrapupAt: 400_000, weeklyUsd: 0, retryGuard: true, deadEnds: true }
+const cfg = { warnMs: 5 * 60_000, warnFrom: 150_000, wrapupAt: 400_000, weeklyUsd: 0, retryGuard: true, deadEnds: true, autoSaveMs: 50 * 60_000 }
 
 /** The main conversation, as this mod has seen it since it loaded. */
 const s = {
@@ -59,6 +64,13 @@ const s = {
   wrapping: false,
   wrapped: false,
   ticking: false,
+  /** A turn is running; set when a prompt goes in, cleared when the main turn completes. */
+  busy: false,
+  /** Something was asked since the last save, so there is something to save. */
+  dirty: false,
+  autosaving: false,
+  /** When the last automatic save finished; null once something new is asked. */
+  savedAt: null as number | null,
 }
 
 /** Failed commands per loop, for the retry guard. */
@@ -91,6 +103,14 @@ function forget() {
   s.nudged = 0
   s.wrapping = false
   s.wrapped = false
+  s.dirty = false
+  s.autosaving = false
+  s.savedAt = null
+}
+
+const clockTime = (ms: number) => {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const quote = (text: string) => {
@@ -152,15 +172,44 @@ function wrapupPrompt(): string {
   ].join('\n')
 }
 
+function autosavePrompt(idleMs: number): string {
+  return [
+    `Autosave from ${PLUGIN}: this session has been quiet for ${minutes(idleMs)}, and its cache goes cold in about ${minutes(CACHE_MS - idleMs)}.`,
+    WRAPUP_SAVE,
+    'Write each item that waits on me in plain words: what it is, what it holds up, and where to look.',
+    'Do not start new work and do not mark the session done. If nothing changed since the last save, change nothing.',
+    "Reply in one line: what you saved and where, or 'Nothing new to save.'",
+  ].join(' ')
+}
+
+/** Before the cache goes cold, asks a quiet session that did something since its last save to save where it stopped. */
+function maybeAutosave($: EngineInterface, now: number) {
+  if (cfg.autoSaveMs <= 0 || !s.dirty || s.busy || s.autosaving || s.wrapping || s.wrapped) return
+  if (s.lastMainAt === null || s.tokens < AUTOSAVE_MIN_TOKENS) return
+  const idle = now - s.lastMainAt
+  if (idle < cfg.autoSaveMs || idle >= CACHE_MS) return
+  s.autosaving = true
+  void $.prompt.submit({ text: autosavePrompt(idle), asUser: true })
+}
+
 /** Works out the band, and the one pop-up before the cache goes cold. */
 async function refresh($: EngineInterface) {
   const now = await $.clock.now()
+  maybeAutosave($, now)
   let next: Band | null = null
 
   if (s.wrapped) {
     next = {
       tone: 'saved',
       text: 'Wrapped up and saved. Safe to archive; start the next session from its notes.',
+    }
+  } else if (s.savedAt !== null && !s.dirty) {
+    const cold = s.lastMainAt !== null && now - s.lastMainAt >= CACHE_MS
+    next = {
+      tone: 'saved',
+      text: cold
+        ? `Saved automatically at ${clockTime(s.savedAt)}, and the cache has gone cold since. A fresh session that reads the notes is cheaper than a message here.`
+        : `Saved automatically at ${clockTime(s.savedAt)}. Coming back after a break? A fresh session can pick up from the notes.`,
     }
   } else if (s.lastMainAt !== null && s.tokens >= cfg.warnFrom) {
     const left = s.lastMainAt + CACHE_MS - now
@@ -217,6 +266,7 @@ export const register: Register = (on, options) => {
   cfg.weeklyUsd = num(options.weeklyUsd, 0)
   cfg.retryGuard = options.retryGuard !== false
   cfg.deadEnds = options.deadEnds !== false
+  cfg.autoSaveMs = Math.min(num(options.autoSaveMinutes, 50) * 60_000, AUTOSAVE_MAX_MS)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -255,19 +305,31 @@ export const register: Register = (on, options) => {
     if (!fromUs) {
       s.wrapping = false
       s.wrapped = false
+      s.dirty = true
+      s.savedAt = null
     }
+    s.busy = true
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined && s.wrapping && !e.isAborted) {
+    if (e.agentId !== undefined) return result
+    s.busy = false
+    if (s.wrapping && !e.isAborted) {
       s.wrapping = false
       s.wrapped = true
+      s.dirty = false
       // Saved with the notes; a fresh list starts here.
       deadEnds.clear()
-      await refresh($)
     }
+    if (s.autosaving) {
+      s.autosaving = false
+      // A stopped save is not retried: whoever stopped it is at the keyboard.
+      s.dirty = false
+      if (!e.isAborted) s.savedAt = await $.clock.now()
+    }
+    await refresh($)
     return result
   })
 
