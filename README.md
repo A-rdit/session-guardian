@@ -90,6 +90,13 @@ automated session is left out of both columns: a background loop that woke every
 and so came back cold every time (85% of its usage). The fix there is to wake it more often
 than once an hour, which needs no plugin.
 
+**After the first week** (10 Oct to the morning of 16 Oct, before the autosave in 0.3.0), cold
+returns were 2.9% of interactive usage against about 20% before, 2.5 a day against 13.7.
+Sessions also stayed smaller: none passed 800K tokens (13% had before), and an average message
+re-read 264K instead of 402K. `/wrapup` ran only once, so the countdown and the nudges did most
+of the work. The numbers, how they were measured and what one week can't show are in the
+[week-one case study (PDF)](docs/session-guardian-case-study-week-one.pdf).
+
 ## The rules
 
 `rules/CLAUDE.md` holds two rules for Claude and one optional one. They work with or without the
