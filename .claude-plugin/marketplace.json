@@ -9,7 +9,7 @@
       "name": "session-guardian",
       "source": "./plugin",
       "description": "Warns before a session's cache goes cold and says what coming back costs, nudges a wrap-up in big sessions, saves a quiet session before its cache goes cold, holds a command that keeps failing, and adds /wrapup.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "category": "productivity"
     }
   ]

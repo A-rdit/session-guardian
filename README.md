@@ -32,11 +32,15 @@ free to share.
   starting fresh.
 - **Autosave.** When a session has been quiet for 50 minutes and you asked it something since
   its last save, Session Guardian asks Claude to save where it stopped (in `TRACKER.md`, or
-  wherever your CLAUDE.md rules say) while the cache is still warm. That costs about one
-  ordinary message. Come back hours later and a fresh session can pick up from the notes, even
-  if you never ran `/wrapup`. It happens once per quiet stretch, only in sessions over 20K
-  tokens, never while Claude is still working, and the line above the prompt then says when it
-  saved.
+  wherever your CLAUDE.md rules say) while the cache is still warm. A save is usually 2 to 5
+  warm messages (measured on 16 Oct 2026: $0.22 on a 472K Opus 5.5 session, $0.13 on a 138K
+  one), about 6% to 12% of the cold return it heads off, and it keeps the cache warm for another
+  hour. Come back hours later and a fresh session can pick up from the notes, even if you never
+  ran `/wrapup`. It happens once per quiet stretch, only in sessions over 20K tokens, never
+  while Claude is still working, and the line above the prompt then says when it saved. When
+  your last turn already ended by writing the notes (`TRACKER.md`, `SESSIONS.md` or a
+  `*HANDOVER*.md`, then nothing but renaming the session or setting its markers), there is
+  nothing new to save and none is sent.
 - **`/wrapup`.** Claude saves where the session stopped (in `TRACKER.md`, or wherever your
   CLAUDE.md rules say), marks the session done and gives you a one-line prompt to start the
   next one. The line above the prompt then says it's safe to archive.
@@ -179,6 +183,10 @@ October 2026, one such week came to about $1,770.
 - The autosave arrives in the session as a message from you, so you see it in the chat. The app
   has to be open for it to run, and a session the app has unloaded is not saved. If you happen
   to be typing in that session at the 50-minute mark, the save goes in first.
+- After `/reload-plugins` or an app restart the plugin doesn't know when a session's last
+  request was, so a session that is already quiet then is not autosaved until its next turn.
+- The autosave knows the notes by their file names. Notes kept under another name are not
+  recognised, so a turn that ends by writing them still gets a save.
 
 ## Development
 

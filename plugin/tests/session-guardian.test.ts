@@ -343,6 +343,107 @@ test('autoSaveMinutes 0 turns the autosave off', { options: { autoSaveMinutes: 0
   expect(seen.prompts.length).toBe(1)
 })
 
+/** Answers every tool call, failing those on a path with `locked` in it. */
+function answerTools(on: On) {
+  on('tool.call', ($, e) => {
+    const path = (e as { file_path?: string }).file_path ?? ''
+    return path.includes('locked')
+      ? ({ result: undefined, isError: true, text: 'EBUSY: resource busy or locked' } as never)
+      : ({ result: undefined, text: 'ok' } as never)
+  })
+}
+
+/** A user prompt whose main turn makes these tool calls, then ends. */
+async function turnWith($: never, text: string, calls: object[]) {
+  const h = $ as {
+    prompt: { submit: (e: unknown) => Promise<unknown> }
+    tool: { call: (e: unknown) => Promise<unknown> }
+    turn: { complete: (e: unknown) => Promise<unknown> }
+  }
+  await h.prompt.submit({ text, origin: { kind: 'human' } })
+  await runStep($, 'claude-opus-5-5')
+  for (const call of calls) await h.tool.call(call)
+  await h.turn.complete({ turnId: 't1', isAborted: false, answer: '' })
+}
+
+test('no autosave when the turn ended by writing the session notes', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 472_000)
+  answerTools(on)
+  await $.session.start(START as never)
+  await $.session.measure(measure(472_000) as never)
+  // How a session that keeps the rules in rules/CLAUDE.md ends a turn: the handover by Edit, its
+  // SESSIONS.md row by a script, then the app's title, marker and wrap-up tools.
+  await turnWith($ as never, 'Compare the TikTok prices', [
+    { tool: 'Bash', command: 'grep -n "^## " REDSUPPLY-HANDOVER.md' },
+    { tool: 'Read', file_path: 'C:\\Users\\a\\RedSocial\\REDSUPPLY-HANDOVER.md' },
+    { tool: 'Edit', file_path: 'C:\\Users\\a\\RedSocial\\REDSUPPLY-HANDOVER.md', old_string: 'a', new_string: 'b' },
+    { tool: 'Bash', command: "cd RedSocial && python - <<'EOF'\np='SESSIONS.md'\nEOF" },
+    { tool: 'mcp__ccd_session_mgmt__set_session_title', session_id: 'self', title: '@#114 RedSocial' },
+    { tool: 'mcp__ccd_sidebar__set_unread', session_id: 'self', unread: true },
+    { tool: 'mcp__ccd_turn__wrap_up', recap: 'Saved.' },
+  ])
+  await clock.advance(55 * 60_000)
+  expect(seen.prompts.length).toBe(1)
+  // The cache countdown still runs: coming back still costs a rewrite.
+  expect(seen.toasts.filter(t => t.includes('goes cold')).length).toBe(1)
+
+  // A new question with no notes written makes the session worth saving again.
+  await exchange($ as never, 'And the Likes prices?')
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(3)
+  expect(seen.prompts[2]).toContain('Autosave from session-guardian')
+})
+
+test('still autosaves when the turn went on after its notes, or the notes write failed', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 200_000)
+  answerTools(on)
+  await $.session.start(START as never)
+  await $.session.measure(measure(200_000) as never)
+
+  // The first reply takes its session number, then does the work.
+  await turnWith($ as never, 'Build the footer', [
+    { tool: 'Write', file_path: 'C:/project/tracker.md', content: '- #W4 · main · footer · working' },
+    { tool: 'Edit', file_path: 'C:/project/src/footer.tsx', old_string: 'a', new_string: 'b' },
+    { tool: 'mcp__ccd_turn__wrap_up', recap: 'Footer built.' },
+  ])
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(2)
+  expect(seen.prompts[1]).toContain('Autosave from session-guardian')
+  await $.turn.complete({ turnId: 't2', isAborted: false, answer: '' } as never)
+
+  // Research after the notes is news the notes lack.
+  await turnWith($ as never, 'Which icon set?', [
+    { tool: 'Edit', file_path: 'C:/project/SESSIONS.md', old_string: 'a', new_string: 'b' },
+    { tool: 'WebSearch', query: 'open source icon sets 2026' },
+  ])
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(4)
+  await $.turn.complete({ turnId: 't3', isAborted: false, answer: '' } as never)
+
+  // A notes write that failed saved nothing.
+  await turnWith($ as never, 'Note the icon choice', [
+    { tool: 'Edit', file_path: 'C:/project/locked/Site-Handover.md', old_string: 'a', new_string: 'b' },
+  ])
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(6)
+  expect(seen.prompts[5]).toContain('Autosave from session-guardian')
+})
+
+test('a subagent writing a notes file does not count as the session saving', async ($, on) => {
+  const clock = mock.clock(on)
+  const seen = engine(on, 200_000)
+  answerTools(on)
+  await $.session.start(START as never)
+  await $.session.measure(measure(200_000) as never)
+  await turnWith($ as never, 'Audit the site', [
+    { tool: 'Write', file_path: 'C:/project/audit/TRACKER.md', content: '- audit', agentId: 'a1' },
+  ])
+  await clock.advance(51 * 60_000)
+  expect(seen.prompts.length).toBe(2)
+})
+
 test('adds the share of the week when weeklyUsd is set', { options: { weeklyUsd: 1770 } }, async ($, on) => {
   const clock = mock.clock(on)
   const seen = engine(on, 896_000)

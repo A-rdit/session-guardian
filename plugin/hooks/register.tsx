@@ -51,6 +51,15 @@ const RETRY_HELD =
 /** Tools whose success means something changed, so a failed command may be worth retrying. */
 const MUTATING = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 
+/** The session's notes, by file name: TRACKER.md, SESSIONS.md, any *HANDOVER*.md. */
+const NOTES_FILE = /^(tracker|sessions)(-archive)?\.md$|handover[^\\/]*\.md$/i
+/** A shell command that names a notes file is working on the notes, as a script that adds a SESSIONS.md row does. */
+const NOTES_NAMED = /\b(tracker|sessions)(-archive)?\.md\b|handover[\w.-]*\.md\b/i
+/** Tools that only keep the session's own books (its title, plan and sidebar markers) and change nothing worth saving. */
+const BOOKKEEPING = /^(mcp__ccd_|ToolSearch$|TodoWrite$|Task(Create|Update|List|Get)$)/
+
+const isNotesFile = (path: string) => NOTES_FILE.test(path.split(/[\\/]/).at(-1) ?? '')
+
 /** Settings, read from the manifest's userConfig when the module loads. */
 const cfg = { warnMs: 5 * 60_000, warnFrom: 150_000, wrapupAt: 400_000, weeklyUsd: 0, retryGuard: true, deadEnds: true, autoSaveMs: 50 * 60_000 }
 
@@ -71,6 +80,8 @@ const s = {
   autosaving: false,
   /** When the last automatic save finished; null once something new is asked. */
   savedAt: null as number | null,
+  /** The running turn has written the session's notes and done nothing since but keep its books. */
+  notesLast: false,
 }
 
 /** Failed commands per loop, for the retry guard. */
@@ -106,6 +117,7 @@ function forget() {
   s.dirty = false
   s.autosaving = false
   s.savedAt = null
+  s.notesLast = false
 }
 
 const clockTime = (ms: number) => {
@@ -309,6 +321,7 @@ export const register: Register = (on, options) => {
       s.savedAt = null
     }
     s.busy = true
+    s.notesLast = false
     return next(e)
   })
 
@@ -329,6 +342,9 @@ export const register: Register = (on, options) => {
       s.dirty = false
       if (!e.isAborted) s.savedAt = await $.clock.now()
     }
+    // The turn ended on writing the session's notes: an autosave would only reword them.
+    if (s.notesLast && !e.isAborted) s.dirty = false
+    s.notesLast = false
     await refresh($)
     return result
   })
@@ -381,6 +397,15 @@ export const register: Register = (on, options) => {
     if (ok && MUTATING.has(String(e.tool))) {
       fails.clear()
       waived.clear()
+    }
+    if (e.agentId === undefined) {
+      const file = e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'Read' ? e.file_path : null
+      if (file !== null && isNotesFile(file)) {
+        if (ok && e.tool !== 'Read') s.notesLast = true
+      } else if (!(command !== null && NOTES_NAMED.test(command)) && !BOOKKEEPING.test(String(e.tool))) {
+        // Anything else the turn does after its notes may be news the notes lack.
+        s.notesLast = false
+      }
     }
     return ran
   })
