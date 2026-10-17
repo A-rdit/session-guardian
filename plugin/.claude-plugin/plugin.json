@@ -1,6 +1,6 @@
 {
   "name": "session-guardian",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Keeps long sessions cheap and easy to pick up: warns before a session's cache goes cold and what coming back costs, nudges a wrap-up past a set size, saves a quiet session's state by itself before its cache goes cold, holds a command that keeps failing, and adds /wrapup, which also saves the session's dead ends.",
   "author": { "name": "Ardit", "url": "https://github.com/A-rdit" },
   "homepage": "https://github.com/A-rdit/session-guardian",

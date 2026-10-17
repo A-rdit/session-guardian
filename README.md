@@ -37,8 +37,9 @@ free to share.
   one), about 6% to 12% of the cold return it heads off, and it keeps the cache warm for another
   hour. Come back hours later and a fresh session can pick up from the notes, even if you never
   ran `/wrapup`. It happens once per quiet stretch, only in sessions over 20K tokens, never
-  while Claude is still working, and the line above the prompt then says when it saved. When
-  your last turn already ended by writing the notes (`TRACKER.md`, `SESSIONS.md` or a
+  while Claude is still working. The line above the prompt then says when it saved and until
+  when the cache stays warm, so you know whether to carry on there or start fresh. When your
+  last turn already ended by writing the notes (`TRACKER.md`, `SESSIONS.md` or a
   `*HANDOVER*.md`, then nothing but renaming the session or setting its markers), there is
   nothing new to save and none is sent.
 - **`/wrapup`.** Claude saves where the session stopped (in `TRACKER.md`, or wherever your

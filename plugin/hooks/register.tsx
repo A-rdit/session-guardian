@@ -216,12 +216,14 @@ async function refresh($: EngineInterface) {
       text: 'Wrapped up and saved. Safe to archive; start the next session from its notes.',
     }
   } else if (s.savedAt !== null && !s.dirty) {
-    const cold = s.lastMainAt !== null && now - s.lastMainAt >= CACHE_MS
+    // The save was a request too, so the cache stays warm an hour from it.
+    const warmUntil = (s.lastMainAt ?? s.savedAt) + CACHE_MS
     next = {
       tone: 'saved',
-      text: cold
-        ? `Saved automatically at ${clockTime(s.savedAt)}, and the cache has gone cold since. A fresh session that reads the notes is cheaper than a message here.`
-        : `Saved automatically at ${clockTime(s.savedAt)}. Coming back after a break? A fresh session can pick up from the notes.`,
+      text:
+        now >= warmUntil
+          ? `Saved automatically at ${clockTime(s.savedAt)}, and the cache has gone cold since. A fresh session that reads the notes is cheaper than a message here.`
+          : `Saved automatically at ${clockTime(s.savedAt)}, warm until ${clockTime(warmUntil)}. Back by then: carry on here. Later: start fresh from the notes.`,
     }
   } else if (s.lastMainAt !== null && s.tokens >= cfg.warnFrom) {
     const left = s.lastMainAt + CACHE_MS - now

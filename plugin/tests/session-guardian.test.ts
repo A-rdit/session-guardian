@@ -271,6 +271,12 @@ const mountBand = async ($: never) =>
     props: { hasSurvey: false, isWorking: false },
   })
 
+/** A clock time as the band writes it. */
+const hhmm = (ms: number) => {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 test('saves a quiet session once, ten minutes before its cache goes cold', async ($, on) => {
   const clock = mock.clock(on)
   const seen = engine(on, 200_000)
@@ -287,16 +293,23 @@ test('saves a quiet session once, ten minutes before its cache goes cold', async
   expect(seen.prompts[1]).toContain('Autosave from session-guardian')
   expect(seen.prompts[1]).toContain('TRACKER.md')
   expect(seen.prompts[1]).toContain('plain words')
+  await runStep($ as never, 'claude-opus-5-5')
   await $.turn.complete({ turnId: 't2', isAborted: false, answer: '' } as never)
 
-  const ui = await mountBand($ as never)
-  expect(await ui.find({ type: 'Text', text: /Saved automatically at/ })).toBeDefined()
+  // The save was a request, so the cache stays warm an hour from it.
+  const savedAt = clock.now()
+  let ui = await mountBand($ as never)
+  const warm = `Saved automatically at ${hhmm(savedAt)}, warm until ${hhmm(savedAt + 60 * 60_000)}. Back by then`
+  expect(await ui.find({ type: 'Text', text: new RegExp(warm.replace('.', '\\.')) })).toBeDefined()
   await ui.unmount()
 
   // Nothing new was asked, so no second save and no cold warning.
   await clock.advance(120 * 60_000)
   expect(seen.prompts.length).toBe(2)
   expect(seen.toasts.filter(t => t.includes('goes cold')).length).toBe(0)
+  ui = await mountBand($ as never)
+  expect(await ui.find({ type: 'Text', text: /the cache has gone cold since/ })).toBeDefined()
+  await ui.unmount()
 
   // A new question makes the session worth saving again.
   await exchange($ as never, 'Now the footer')
